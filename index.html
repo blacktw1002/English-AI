@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>LingoFlow AI</title>
+    
+    <!-- 1. PWA Setup (Mobile Icons & Theme) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#ffffff">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3413/3413535.png">
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3413/3413535.png">
+
+    <!-- Hack to make PWA Manifest work on static hosts like GitHub Pages without a separate file -->
+    <link rel="manifest" id="manifest-placeholder">
+    <script>
+      const manifest = {
+        "short_name": "LingoFlow",
+        "name": "LingoFlow AI English",
+        "icons": [
+          { "src": "https://cdn-icons-png.flaticon.com/512/3413/3413535.png", "sizes": "512x512", "type": "image/png" }
+        ],
+        "start_url": ".",
+        "display": "standalone",
+        "theme_color": "#ffffff",
+        "background_color": "#ffffff"
+      };
+      const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+      document.querySelector('#manifest-placeholder').setAttribute('href', URL.createObjectURL(blob));
+    </script>
+    
+    <!-- 2. Styling & Fonts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- 3. React & Babel (For running JSX in browser) -->
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 4. Google GenAI SDK -->
+    <script type="module">
+      import { GoogleGenAI, Type, Modality } from "https://esm.run/@google/genai";
+      window.GoogleGenAI = GoogleGenAI;
+      window.GenAIType = Type;
+      window.GenAIModality = Modality;
+    </script>
+
+    <style>
+      body {
+        font-family: 'Nunito', 'Noto Sans TC', sans-serif;
+        background-color: #f8fafc;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior-y: none;
+      }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      /* Chat Transcript Styles */
+      .transcript-container { display: flex; flex-direction: column; gap: 24px; padding-bottom: 120px; }
+      .transcript-row { display: flex; gap: 12px; align-items: flex-start; }
+      .transcript-row.user { flex-direction: row-reverse; }
+      
+      .transcript-avatar { 
+        width: 36px; height: 36px; border-radius: 12px; 
+        display: flex; align-items: center; justify-content: center; 
+        font-size: 1rem; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+      .transcript-row.user .transcript-avatar { background: #f43f5e; color: white; }
+      .transcript-row.ai .transcript-avatar { background: white; color: #f43f5e; border: 1px solid #ffe4e6; }
+
+      .transcript-content { display: flex; flex-direction: column; max-width: 85%; }
+      .transcript-name { font-size: 0.7rem; font-weight: 700; margin-bottom: 2px; color: #94a3b8; padding: 0 4px; }
+      .transcript-row.user .transcript-name { text-align: right; }
+      
+      .transcript-text { 
+        font-size: 0.95rem; line-height: 1.6; padding: 12px 16px; border-radius: 16px; 
+        position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      }
+      .transcript-row.ai .transcript-text { background-color: white; border: 1px solid #f1f5f9; color: #334155; border-top-left-radius: 4px; }
+      .transcript-row.user .transcript-text { background-color: #fff1f2; color: #be123c; border-top-right-radius: 4px; border: 1px solid #fda4af; }
+
+      /* Animation Classes */
+      @keyframes fadeInDown { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+      .animate-fade-in-down { animation: fadeInDown 0.3s ease-out forwards; }
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+      .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .perspective-container { perspective: 1000px; }
+      
+      /* Loader */
+      #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: white; z-index: 9999; transition: opacity 0.5s; }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="loading">
+        <div class="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-gray-500 font-bold text-sm tracking-widest">LINGOFLOW AI</p>
+    </div>
+    
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        
+        // Hide loader
+        setTimeout(() => {
+            const loader = document.getElementById('loading');
+            if(loader) { loader.style.opacity = '0'; setTimeout(()=>loader.remove(), 500); }
+        }, 800);
+
+        // ==========================================
+        // 1. DATA & CONSTANTS
+        // ==========================================
+        const AppTab = { WORDS: 'words', READ: 'read', TALK: 'talk', PROFILE: 'profile' };
+
+        const FALLBACK_WORDS = [
+          { id: '1', term: 'Ambiguous', ipa: '/æmˈbɪɡ.ju.əs/', partOfSpeech: 'adj.', definition: 'Having more than one possible meaning.', example: 'The wording is ambiguous.', translation: '模稜兩可的', mastered: false, saved: false },
+          { id: '2', term: 'Lucrative', ipa: '/ˈluː.krə.tɪv/', partOfSpeech: 'adj.', definition: 'Producing a lot of money.', example: 'A lucrative business.', translation: '利潤豐厚的', mastered: false, saved: false },
+          { id: '3', term: 'Meticulous', ipa: '/məˈtɪk.jə.ləs/', partOfSpeech: 'adj.', definition: 'Very careful and precise.', example: 'Meticulous planning.', translation: '一絲不苟的', mastered: false, saved: false },
+        ];
+
+        const FALLBACK_ARTICLE = {
+          id: '1',
+          title: 'The Power of Habit',
+          author: 'AI Generated',
+          category: 'Self Growth',
+          image: 'https://picsum.photos/400/200?grayscale',
+          segments: [
+              { en: "Habits are the small decisions you make and actions you perform every day.", cn: "習慣是你每天做出的微小決定和執行的行動。" },
+              { en: "Your life today is essentially the sum of your habits.", cn: "你今天的生活本質上是你習慣的總和。" }
+          ]
+        };
+
+        const DAILY_TOPICS = [
+            "Ordering coffee at a cafe", "Weekend travel plans", "Favorite movies and TV shows", 
+            "Dream jobs and career", "Healthy food choices", "Latest technology trends", 
+            "Childhood memories", "Asking for directions", "Shopping for clothes"
+        ];
+
+        // ==========================================
+        // 2. UTILITIES & SERVICES
+        // ==========================================
+        const getApiKey = () => localStorage.getItem('gemini_api_key') || '';
+        const saveApiKey = (key) => localStorage.setItem('gemini_api_key', key);
+        const hasApiKey = () => !!getApiKey();
+        const getTodayString = () => new Date().toISOString().split('T')[0];
+        
+        // JSON Sanitizer
+        const cleanJSON = (text) => {
+            if (!text) return '{}';
+            let cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            try { JSON.parse(cleaned); return cleaned; } 
+            catch { return '{}'; }
+        };
+
+        // Audio Helper Functions
+        function base64ToUint8Array(base64) {
+          const binaryString = atob(base64);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+          return bytes;
+        }
+
+        function arrayBufferToBase64(buffer) {
+          let binary = '';
+          const bytes = new Uint8Array(buffer);
+          const len = bytes.byteLength;
+          for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+          return btoa(binary);
+        }
+
+        async function decodeAudioData(data, ctx, sampleRate = 24000) {
+          const dataInt16 = new Int16Array(data.buffer);
+          const buffer = ctx.createBuffer(1, dataInt16.length, sampleRate);
+          const channelData = buffer.getChannelData(0);
+          for (let i = 0; i < dataInt16.length; i++) channelData[i] = dataInt16[i] / 32768.0;
+          return buffer;
+        }
+
+        function float32ToPCM16(float32Array) {
+          const int16 = new Int16Array(float32Array.length);
+          for (let i = 0; i < float32Array.length; i++) {
+            const s = Math.max(-1, Math.min(1, float32Array[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          return int16.buffer;
+        }
+
+        // --- AI API CALLS ---
+        
+        // 1. TTS (Text to Speech)
+        async function playTextToSpeech(text, setLoadingState) {
+          if (setLoadingState) setLoadingState(true);
+          const apiKey = getApiKey();
+          
+          if (apiKey && window.GoogleGenAI) {
+            try {
+              const ai = new window.GoogleGenAI({ apiKey });
+              const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-tts",
+                contents: { parts: [{ text: text }] },
+                config: {
+                  responseModalities: [window.GenAIModality.AUDIO],
+                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
+                }
+              });
+              const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+              if (base64Audio) {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), ctx, 24000);
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(ctx.destination);
+                source.start();
+                if (setLoadingState) setLoadingState(false);
+                return;
+              }
+            } catch (error) { console.warn("AI TTS failed, falling back", error); }
+          }
+          
+          // Fallback to browser TTS
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = 'en-US';
+          window.speechSynthesis.speak(u);
+          if (setLoadingState) setLoadingState(false);
+        }
+
+        // 2. Generate Daily Content
+        const generateDailyContent = async (type) => {
+           const apiKey = getApiKey();
+           if (!apiKey || !window.GoogleGenAI) throw new Error("API Key Missing");
+           const ai = new window.GoogleGenAI({ apiKey });
+           
+           if (type === 'words') {
+               const prompt = `Generate 5 advanced English vocabulary words for TOEIC/Business. Return strictly a JSON array with: id, term, ipa, partOfSpeech, definition, example, translation (Traditional Chinese).`;
+               const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+               return JSON.parse(cleanJSON(res.text));
+           } else if (type === 'article') {
+               const prompt = `Write a short article (approx 100 words) about a random interesting fact or self-improvement. Return strictly a JSON object with: title, author, category, segments (array of object {en: string, cn: string}). Ensure 'cn' is Traditional Chinese.`;
+               const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+               const data = JSON.parse(cleanJSON(res.text));
+               data.id = Date.now().toString();
+               data.image = `https://picsum.photos/400/200?random=${Date.now()}`;
+               return data;
+           }
+        };
+
+        // 3. Lookup Word
+        const lookupWord = async (term) => {
+          const apiKey = getApiKey();
+          if (!apiKey) throw new Error("Missing Key");
+          const ai = new window.GoogleGenAI({ apiKey });
+          const res = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: `Define "${term}". Return JSON: term, translation (Trad. Chinese), definition, example, ipa, partOfSpeech.`,
+              config: { responseMimeType: 'application/json' }
+          });
+          return JSON.parse(cleanJSON(res.text));
+        };
+
+        // 4. Context Explanation
+        const explainWordInContext = async (word, context) => {
+           const apiKey = getApiKey();
+           if (!apiKey) return null;
+           const ai = new window.GoogleGenAI({ apiKey });
+           const res = await ai.models.generateContent({
+               model: 'gemini-2.5-flash',
+               contents: `Explain "${word}" in context: "${context}". Return JSON: definition, translation (Chinese), ipa, usageNote.`,
+               config: { responseMimeType: 'application/json' }
+           });
+           return JSON.parse(cleanJSON(res.text));
+        };
+
+        // 5. Live Client
+        const getLiveClient = () => {
+            const apiKey = getApiKey();
+            if (!apiKey) throw new Error("API Key not found");
+            return new window.GoogleGenAI({ apiKey });
+        };
+
+        // ==========================================
+        // 3. UI COMPONENTS
+        // ==========================================
+
+        const Toast = ({ state, onClose }) => {
+          useEffect(() => { if (state.show) { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); } }, [state.show, onClose]);
+          if (!state.show) return null;
+          const colors = { success: 'bg-emerald-500', error: 'bg-rose-500', info: 'bg-indigo-500' };
+          return <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] animate-fade-in-down w-[90%] max-w-sm ${colors[state.type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3`}><p className="font-bold text-sm">{state.message}</p></div>;
+        };
+
+        const Navigation = ({ currentTab, setTab }) => {
+          const items = [ {id: AppTab.WORDS, icon: 'fa-layer-group', l:'單字'}, {id: AppTab.READ, icon: 'fa-book-open', l:'閱讀'}, {id: AppTab.TALK, icon: 'fa-microphone-lines', l:'口說', s:true}, {id: AppTab.PROFILE, icon: 'fa-user', l:'我的'} ];
+          const color = t => t===AppTab.READ?'text-emerald-600':t===AppTab.TALK?'text-rose-600':t===AppTab.PROFILE?'text-sky-600':'text-violet-600';
+          const grad = t => t===AppTab.READ?'from-emerald-500 to-teal-500 shadow-emerald-500/30':t===AppTab.TALK?'from-rose-500 to-pink-600 shadow-rose-500/30':t===AppTab.PROFILE?'from-sky-500 to-blue-600 shadow-sky-500/30':'from-violet-500 to-fuchsia-600 shadow-violet-500/30';
+          
+          return (
+            <nav className="fixed bottom-0 w-full bg-white/95 backdrop-blur border-t border-gray-100 pb-6 pt-2 px-6 z-50 flex justify-between items-end">
+              {items.map(i => i.s ? (
+                  <button key={i.id} onClick={()=>setTab(i.id)} className={`relative -top-5 w-16 h-16 rounded-full flex items-center justify-center text-white bg-gradient-to-br shadow-lg active:scale-95 transition ${grad(currentTab)}`}><i className={`fas ${i.icon} text-2xl`}></i></button>
+              ) : (
+                  <button key={i.id} onClick={()=>setTab(i.id)} className={`w-16 flex flex-col items-center gap-1 transition ${currentTab===i.id?color(currentTab):'text-gray-400'}`}><i className={`fas ${i.icon} ${currentTab===i.id?'text-xl':'text-lg'}`}></i><span className="text-[10px] font-bold">{i.l}</span></button>
+              ))}
+            </nav>
+          );
+        };
+
+        // --- [TAB] WORD FLASHCARDS ---
+        const WordTab = ({ words, toggleSaved, setToast, onAddWord, dailyGoal }) => {
+          const [index, setIndex] = useState(0);
+          const [showBack, setShowBack] = useState(false);
+          const [animating, setAnimating] = useState(false);
+          const [term, setTerm] = useState('');
+          const [isSpeaking, setIsSpeaking] = useState(false);
+          const [aiResult, setAiResult] = useState(null);
+          const [searching, setSearching] = useState(false);
+
+          const filtered = words.filter(w => w.term.toLowerCase().includes(term.toLowerCase()) || w.translation.includes(term));
+          const cur = filtered[index] || {};
+
+          useEffect(() => { setIndex(0); setShowBack(false); setAiResult(null); }, [term]);
+
+          const flip = () => { if(animating)return; setAnimating(true); setTimeout(() => { setShowBack(!showBack); setAnimating(false); }, 150); };
+          
+          const handleNext = () => { 
+             if(index < filtered.length-1) { setShowBack(false); setTimeout(()=>setIndex(i=>i+1), 100); } 
+             else setToast({show:true, message:"今日目標達成！", type:'success'}); 
+          };
+          
+          const handlePrev = () => { 
+             if(index > 0) { setShowBack(false); setTimeout(()=>setIndex(i=>i-1), 100); } 
+          };
+          
+          const speak = (e, text) => { e.stopPropagation(); playTextToSpeech(text, setIsSpeaking); };
+          
+          const aiSearch = async () => {
+              if(!term) return; setSearching(true); setAiResult(null);
+              try { const res = await lookupWord(term); setAiResult(res); } 
+              catch(e){ setToast({show:true, message:"查詢失敗", type:'error'}); }
+              finally{ setSearching(false); }
+          };
+
+          return (
+            <div className="flex flex-col h-full pt-4 pb-28 px-4 bg-slate-50 relative">
+              {/* Search Bar */}
+              <div className="relative mb-6 z-20">
+                  <i className="fas fa-search absolute left-4 top-3.5 text-gray-400"></i>
+                  <input value={term} onChange={e=>setTerm(e.target.value)} placeholder="搜尋單字..." className="w-full pl-10 pr-4 py-3 rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-violet-200 font-bold text-gray-700" />
+                  {term && <button onClick={()=>setTerm('')} className="absolute right-4 top-3.5 text-gray-400"><i className="fas fa-times"></i></button>}
+              </div>
+
+              {filtered.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center pb-20">
+                      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-300"><i className="fas fa-search text-3xl"></i></div>
+                      <p className="text-gray-500 font-bold mb-4">{searching?"AI 搜尋中...":`找不到 "${term}"`}</p>
+                      {!searching && !aiResult && term && <button onClick={aiSearch} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-violet-200">AI 雲端查詢</button>}
+                      {searching && <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin"></div>}
+                      {aiResult && (
+                          <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm border border-violet-100 animate-fade-in-up text-left">
+                              <h2 className="text-2xl font-black text-gray-800">{aiResult.term}</h2>
+                              <p className="text-violet-600 font-bold mb-2">{aiResult.translation}</p>
+                              <p className="text-sm text-gray-600 mb-4">{aiResult.definition}</p>
+                              <button onClick={()=>{onAddWord(aiResult.term, aiResult.definition, aiResult.translation, aiResult); setTerm('');}} className="w-full py-3 bg-violet-50 text-violet-600 font-bold rounded-xl">加入單字庫</button>
+                          </div>
+                      )}
+                  </div>
+              ) : (
+                  <>
+                    {/* Progress */}
+                    <div className="w-full bg-gray-200 h-1.5 rounded-full mb-6 flex items-center gap-2">
+                        <div className="flex-1 bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-gradient-to-r from-violet-500 to-fuchsia-500 h-full transition-all" style={{width:`${Math.min(((index+1)/dailyGoal)*100,100)}%`}}></div>
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-400 w-12 text-right">{Math.min(index+1, dailyGoal)} / {dailyGoal}</span>
+                    </div>
+
+                    {/* Flashcard (Scale Swap) */}
+                    <div className="flex-1 flex flex-col items-center justify-center perspective-container">
+                        <div className={`w-full max-w-sm aspect-[3/4] cursor-pointer transition-transform duration-300 ${animating?'scale-x-0 opacity-50':'scale-x-100 opacity-100'}`} onClick={flip}>
+                            <div className={`w-full h-full rounded-[2.5rem] shadow-xl border border-white relative flex flex-col overflow-hidden ${showBack?'bg-gradient-to-br from-violet-600 to-fuchsia-700 text-white':'bg-white text-gray-800'}`}>
+                                {!showBack ? (
+                                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                                        <button onClick={(e)=>{e.stopPropagation(); toggleSaved(cur.id);}} className="absolute top-6 right-6 w-10 h-10 bg-white shadow rounded-full flex items-center justify-center"><i className={`fas fa-heart ${cur.saved?'text-rose-500':'text-gray-200'}`}></i></button>
+                                        <h2 className="text-4xl font-black mb-2">{cur.term}</h2>
+                                        <div className="flex gap-2 text-gray-500 mb-8 font-serif italic"><span>{cur.partOfSpeech}</span><span>{cur.ipa}</span></div>
+                                        <button onClick={(e)=>speak(e, cur.term)} className={`w-14 h-14 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center transition ${isSpeaking?'scale-110 shadow-lg':''}`}><i className="fas fa-volume-up text-xl"></i></button>
+                                        <p className="mt-auto text-xs font-bold text-gray-300 uppercase tracking-widest">點擊翻轉</p>
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center relative">
+                                        <h2 className="text-3xl font-black mb-4">{cur.translation}</h2>
+                                        <div className="bg-white/10 p-4 rounded-xl backdrop-blur-sm w-full mb-4"><p className="font-medium">{cur.definition}</p></div>
+                                        <p className="text-sm opacity-80 italic">"{cur.example}"</p>
+                                        <p className="absolute bottom-8 text-white/50 text-xs font-bold uppercase tracking-widest">點擊返回</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Navigation Buttons */}
+                    <div className="flex flex-col w-full max-w-sm mx-auto mt-6 z-10">
+                         <div className="flex items-center justify-center gap-8">
+                            <button 
+                                onClick={handlePrev} 
+                                disabled={index===0} 
+                                className={`w-16 h-16 rounded-full bg-white shadow-lg text-gray-400 flex items-center justify-center text-xl transition active:scale-95 border border-gray-100 ${index===0?'opacity-50 cursor-not-allowed':''}`}
+                            >
+                                <i className="fas fa-arrow-left"></i>
+                            </button>
+                            <button 
+                                onClick={handleNext} 
+                                className="w-16 h-16 rounded-full bg-violet-600 shadow-xl shadow-violet-200 text-white flex items-center justify-center text-xl transition active:scale-95 hover:bg-violet-700"
+                            >
+                                <i className="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                        <div className="flex justify-between w-full px-12 mt-2">
+                            <span className="text-xs text-gray-400 font-bold ml-1">上一個</span>
+                            <span className="text-xs text-gray-400 font-bold mr-1">下一個</span>
+                        </div>
+                    </div>
+                  </>
+              )}
+            </div>
+          );
+        };
+
+        // --- [TAB] READ ---
+        const ReadTab = ({ setToast, onSaveWord }) => {
+          const [article, setArticle] = useState(FALLBACK_ARTICLE);
+          const [selected, setSelected] = useState(null);
+          const [def, setDef] = useState(null);
+          const [loading, setLoading] = useState(false);
+          const [generating, setGenerating] = useState(false);
+          const [bilingual, setBilingual] = useState(true);
+
+          useEffect(() => {
+              const lastDate = localStorage.getItem('last_article_date');
+              const today = getTodayString();
+              // Auto Refresh Daily if API Key exists
+              if (lastDate !== today && hasApiKey()) refreshArticle();
+          }, []);
+
+          const refreshArticle = async () => {
+              setGenerating(true);
+              try {
+                  const newArt = await generateDailyContent('article');
+                  if(newArt && newArt.segments) {
+                      setArticle(newArt);
+                      localStorage.setItem('last_article_date', getTodayString());
+                      setToast({show:true, message:"已更新今日文章", type:'success'});
+                  }
+              } catch(e){ console.error(e); setToast({show:true, message:"文章生成失敗，顯示預設內容", type:'info'}); }
+              finally { setGenerating(false); }
+          };
+
+          const handleWord = async (w, ctx) => {
+              const word = w.replace(/[^a-zA-Z]/g, ''); if(word.length<2)return;
+              setSelected(word); setLoading(true); setDef(null);
+              const res = await explainWordInContext(word, ctx);
+              setLoading(false);
+              if(res) setDef(res); else { setSelected(null); setToast({show:true, message:"查詢失敗", type:'error'}); }
+          };
+
+          return (
+            <div className="h-full overflow-y-auto pb-24 bg-white">
+              <div className="relative h-72">
+                  <img src={article.image} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-emerald-900 to-transparent flex items-end p-6">
+                      <div className="w-full">
+                          <div className="flex justify-between items-start">
+                              <span className="bg-emerald-500 text-white text-xs px-2 py-1 rounded font-bold uppercase">{article.category}</span>
+                              <button onClick={refreshArticle} disabled={generating} className={`w-8 h-8 rounded-full bg-white/20 backdrop-blur text-white flex items-center justify-center ${generating?'animate-spin':''}`}><i className="fas fa-sync-alt"></i></button>
+                          </div>
+                          <h1 className="text-2xl font-black text-white mt-2 leading-tight">{article.title}</h1>
+                          <p className="text-emerald-100 text-xs mt-1">by {article.author}</p>
+                      </div>
+                  </div>
+              </div>
+              <div className="sticky top-0 bg-white/95 backdrop-blur z-20 px-6 py-3 flex items-center justify-between border-b border-gray-100">
+                  <button onClick={()=>playTextToSpeech(article.segments.map(s=>s.en).join(' '))} className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center"><i className="fas fa-play"></i></button>
+                  <button onClick={()=>setBilingual(!bilingual)} className={`px-4 py-1.5 rounded-full text-xs font-bold border ${bilingual?'bg-emerald-600 text-white border-emerald-600':'border-gray-200 text-gray-500'}`}>{bilingual?'中英':'純英'}</button>
+              </div>
+              <div className="p-6 space-y-6">
+                  {article.segments.map((seg, i) => (
+                      <div key={i}>
+                          <p className="text-lg leading-relaxed text-gray-800 font-serif mb-2">
+                              {seg.en.split(/(\s+)/).map((w,k)=>(
+                                  <span key={k} onClick={()=>handleWord(w, seg.en)} className="hover:bg-emerald-100 hover:text-emerald-700 cursor-pointer rounded transition">{w}</span>
+                              ))}
+                          </p>
+                          {bilingual && <p className="text-sm text-gray-500 border-l-2 border-emerald-200 pl-3">{seg.cn}</p>}
+                      </div>
+                  ))}
+              </div>
+              {selected && (
+                  <div className="fixed inset-0 z-50 flex items-end justify-center pointer-events-none">
+                      <div className="absolute inset-0 bg-black/20 pointer-events-auto" onClick={()=>setSelected(null)}></div>
+                      <div className="bg-white w-full max-w-md rounded-t-3xl p-6 pb-10 pointer-events-auto animate-slide-up shadow-2xl">
+                          {loading ? <div className="text-center py-8"><div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div><p className="text-xs font-bold text-gray-400">AI 解析中...</p></div> : def ? (
+                              <>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div><h2 className="text-3xl font-black capitalize">{selected}</h2><span className="text-gray-400 italic font-serif">{def.ipa}</span></div>
+                                    <button onClick={()=>playTextToSpeech(selected)} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"><i className="fas fa-volume-up"></i></button>
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded-xl mb-4"><p className="text-xl font-bold text-emerald-600 mb-1">{def.translation}</p><p className="text-gray-600">{def.definition}</p></div>
+                                <button onClick={()=>{onSaveWord(selected, def.definition, def.translation); setSelected(null);}} className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl">加入筆記</button>
+                              </>
+                          ) : null}
+                      </div>
+                  </div>
+              )}
+            </div>
+          );
+        };
+
+        // --- [TAB] TALK ---
+        const TalkTab = () => {
+          const [connected, setConnected] = useState(false);
+          const [messages, setMessages] = useState([]);
+          const [topic, setTopic] = useState(DAILY_TOPICS[0]);
+          const [status, setStatus] = useState("點擊麥克風開始");
+          const audioRef = useRef(null);
+          const streamRef = useRef(null);
+          const scrollRef = useRef(null);
+
+          useEffect(() => {
+              setTopic(DAILY_TOPICS[Math.floor(Math.random()*DAILY_TOPICS.length)]);
+              return () => disconnect();
+          }, []);
+
+          useEffect(() => {
+              if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }, [messages]);
+
+          const init = async () => {
+              if(!hasApiKey()){ setStatus("請先設定 API Key"); return; }
+              try {
+                  setStatus("連線中...");
+                  const ctx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000});
+                  audioRef.current = ctx;
+                  const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+                  streamRef.current = stream;
+                  
+                  const ai = getLiveClient();
+                  const source = ctx.createMediaStreamSource(stream);
+                  const proc = ctx.createScriptProcessor(4096,1,1);
+                  
+                  const session = ai.live.connect({
+                      model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+                      callbacks: {
+                          onopen: ()=>{ setStatus("連線成功"); setConnected(true); setMessages([]); },
+                          onmessage: async (msg)=>{
+                              const audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                              if(audio) {
+                                  const buf = await decodeAudioData(base64ToUint8Array(audio), ctx);
+                                  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start();
+                              }
+                              const outTxt = msg.serverContent?.outputTranscription?.text;
+                              if(outTxt) setMessages(p=>{ const l=p[p.length-1]; if(l?.role==='ai') return [...p.slice(0,-1),{...l,text:l.text+outTxt}]; return [...p,{role:'ai',text:outTxt}]; });
+                              const inTxt = msg.serverContent?.inputTranscription?.text;
+                              if(inTxt) setMessages(p=>{ const l=p[p.length-1]; if(l?.role==='user') return [...p.slice(0,-1),{...l,text:l.text+inTxt}]; return [...p,{role:'user',text:inTxt}]; });
+                          },
+                          onclose: ()=>{ setStatus("已斷線"); setConnected(false); }
+                      },
+                      config: { 
+                          responseModalities:['AUDIO'], 
+                          inputAudioTranscription:{}, 
+                          outputAudioTranscription:{}, 
+                          systemInstruction:`Roleplay a conversation. Topic: ${topic}. Be friendly, correct mistakes gently. Name: Rose.` 
+                      }
+                  });
+                  
+                  const sess = await session;
+                  proc.onaudioprocess = (e) => {
+                      const data = arrayBufferToBase64(float32ToPCM16(e.inputBuffer.getChannelData(0)));
+                      sess.sendRealtimeInput({media:{mimeType:'audio/pcm;rate=24000',data}});
+                  };
+                  source.connect(proc); proc.connect(ctx.destination);
+              } catch(e){ console.error(e); setStatus("連線失敗"); disconnect(); }
+          };
+
+          const disconnect = () => {
+              streamRef.current?.getTracks().forEach(t=>t.stop());
+              audioRef.current?.close();
+              setConnected(false); setStatus("點擊麥克風開始");
+          };
+
+          return (
+            <div className="h-full flex flex-col bg-slate-50 relative">
+                <div className="bg-white/80 backdrop-blur p-4 border-b border-gray-100 z-10 sticky top-0">
+                    <p className="text-xs font-bold text-rose-400 uppercase tracking-widest text-center mb-1">Today's Topic</p>
+                    <h2 className="text-xl font-black text-gray-800 text-center leading-tight">"{topic}"</h2>
+                    <p className="text-xs text-center text-gray-400 mt-1">{status}</p>
+                </div>
+                
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+                    {messages.length===0 && (
+                        <div className="text-center mt-20 opacity-30">
+                            <i className="fas fa-microphone-lines text-6xl mb-4 text-rose-300"></i>
+                            <p className="font-bold">準備好練習口說了嗎？</p>
+                        </div>
+                    )}
+                    <div className="transcript-container">
+                        {messages.map((m,i)=>(
+                            <div key={i} className={`transcript-row ${m.role}`}>
+                                <div className="transcript-avatar"><i className={`fas ${m.role==='ai'?'fa-robot':'fa-user'}`}></i></div>
+                                <div className="transcript-content">
+                                    <div className="transcript-name">{m.role==='ai'?'Rose (AI Tutor)':'You'}</div>
+                                    <div className="transcript-text">{m.text}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="absolute bottom-24 left-0 right-0 flex justify-center pointer-events-none">
+                    <button onClick={connected?disconnect:init} className={`pointer-events-auto w-20 h-20 rounded-full shadow-2xl flex items-center justify-center border-4 border-white transition active:scale-95 ${connected?'bg-rose-500 animate-pulse':'bg-gradient-to-br from-rose-500 to-pink-600'}`}>
+                        <i className={`fas ${connected?'fa-stop':'fa-microphone'} text-2xl text-white`}></i>
+                    </button>
+                </div>
+            </div>
+          );
+        };
+
+        // --- MAIN APP COMPONENT ---
+        const App = () => {
+            const [tab, setTab] = useState(AppTab.WORDS);
+            const [words, setWords] = useState(FALLBACK_WORDS);
+            const [toast, setToast] = useState({show:false, message:'', type:'info'});
+            const [goal, setGoal] = useState(10);
+
+            // Daily Words Update Check
+            useEffect(()=>{
+                const last = localStorage.getItem('last_word_date');
+                const today = getTodayString();
+                if(last!==today && hasApiKey()) {
+                    generateDailyContent('words').then(newWords => {
+                        if(newWords?.length) { 
+                            setWords(newWords); 
+                            localStorage.setItem('last_word_date', today);
+                            setToast({show:true, message:"今日新單字已生成", type:'success'});
+                        }
+                    }).catch(console.error);
+                }
+            },[]);
+
+            const addWord = (t, d, tr, ex) => {
+                setWords(p=>[{id:Date.now().toString(), term:t, definition:d, translation:tr, saved:true, mastered:false, ipa:'', partOfSpeech:'', example:ex?.example||''}, ...p]);
+                setToast({show:true, message:"已儲存", type:'success'});
+            };
+            const toggleSave = (id) => setWords(p=>p.map(w=>w.id===id?{...w, saved:!w.saved}:w));
+
+            const render = () => {
+                if(tab===AppTab.READ) return <ReadTab setToast={setToast} onSaveWord={addWord} />;
+                if(tab===AppTab.TALK) return <TalkTab />;
+                if(tab===AppTab.PROFILE) return (
+                    <div className="h-full p-6 overflow-y-auto bg-slate-50 pb-24">
+                        <div className="bg-white p-6 rounded-3xl shadow-sm mb-6">
+                            <h3 className="font-bold mb-4">API 設定</h3>
+                            <input type="password" placeholder="貼上 API Key" className="w-full bg-gray-50 p-3 rounded-xl text-sm font-bold mb-3 border border-gray-100" onBlur={(e)=>saveApiKey(e.target.value)} defaultValue={getApiKey()}/>
+                            <p className="text-xs text-gray-400">Key 僅儲存於您的瀏覽器中</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-3xl shadow-sm mb-6">
+                            <h3 className="font-bold mb-2">每日目標: {goal}</h3>
+                            <input type="range" min="5" max="50" step="5" value={goal} onChange={(e)=>setGoal(e.target.value)} className="w-full accent-sky-500"/>
+                        </div>
+                        <div className="bg-white p-6 rounded-3xl shadow-sm">
+                            <h3 className="font-bold mb-4">收藏單字 ({words.filter(w=>w.saved).length})</h3>
+                            {words.filter(w=>w.saved).map(w=>(<div key={w.id} className="flex justify-between p-3 border-b border-gray-50 last:border-0"><div><p className="font-bold">{w.term}</p><p className="text-xs text-gray-400">{w.translation}</p></div><button onClick={()=>playTextToSpeech(w.term)}><i className="fas fa-volume-up text-sky-400"></i></button></div>))}
+                        </div>
+                    </div>
+                );
+                return <WordTab words={words} toggleSaved={toggleSave} setToast={setToast} onAddWord={addWord} dailyGoal={goal}/>;
+            };
+
+            return (
+                <div className="h-screen w-full bg-slate-50 flex flex-col text-slate-800 overflow-hidden">
+                    <Toast state={toast} onClose={()=>setToast({...toast, show:false})}/>
+                    <main className="flex-1 overflow-hidden relative">{render()}</main>
+                    <Navigation currentTab={tab} setTab={setTab} />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
